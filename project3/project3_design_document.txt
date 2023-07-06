@@ -1,0 +1,283 @@
+        +---------------------------+
+        |           CS 140          |
+        | PROJECT 3: VIRTUAL MEMORY |
+        |       DESIGN DOCUMENT     |
+        +---------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+SeYeong Park <rikaika@unist.ac.kr>
+JunSu Lee <linak31413@unist.ac.kr>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+      PAGE TABLE MANAGEMENT
+      =====================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+  frame.h
+  > struch frame
+    Newely implemented frame sturct that will be mapped with page structure.
+    Here are some components inside frame structure:
+    > struct lock fr_lock
+      Lock structure to prevent race condition.
+    > void *fr_base
+      Frame's kernel address base.
+    > struct page *fr_page
+      Storing mapped page structure.
+  frame.c
+  > void frame_lock (struct page *)  void frame_unlock (struct frame *)
+    Functions to lock the frame that is connected with the given page.
+    Unlock is done by calling locked frame.
+  page.h
+  > struct page
+    Newely implemented page struct that will be stored in page table.
+    Here are some key components inside page structure:
+    > struct thread *pg_thread
+      Origin therad that made this page.
+    > void *pg_addr
+      Pointer that owns virtual address of this page.
+    > struct frame *pg_frame
+      Frame structure that has been mapped with this page.
+    > bool pg_read_only
+      Checking if this page is readable, and not able to write.
+    > bool pg_private
+      Checking if this page is private.
+      If it is true, there are no changess at disk upon paging out.
+    > struct file *pg_file
+      File sturcture that is going to be used for this page.
+  page.c
+  > void page_exit()
+    Exit all pages on page table, then finally deletes the current
+    thread's page table.
+  > bool page_lock (const void *, bool)  void page_unlock (const void *)
+    Funcitons to lock the page with given address, along with mapped frame.
+
+---- ALGORITHMS ----
+
+>> A2: In a few paragraphs, describe your code for locating the frame,
+>> if any, that contains the data of a given page.
+      In page struct, it has a frame structure component called pg_frame.
+    When the page is connected with frame by paging in, pg_frame will be
+    assigned to that connected frame. It keeps tracking on locating the frame
+    unless it is freed by paging out.
+
+>> A3: How does your code coordinate accessed and dirty bits between
+>> kernel and user virtual addresses that alias a single frame, or
+>> alternatively how do you avoid the issue?
+      There was no such implementation inside our code.
+
+---- SYNCHRONIZATION ----
+
+>> A4: When two user processes both need a new frame at the same time,
+>> how are races avoided?
+      To prevent such race condition, we tried to implement a lock that
+    keeps tracking on which thread has locked the certain memory frame.
+    lock_held_by_current_thread() function in "threads/synch.h" is for
+    checking such lock origin. Using ASSERT(), only threads that can
+    proceed many functions in "vm" directory is the one which has locked
+    the given frame.
+      By this method, it is gauranteed that thread that started to use
+    a frame first is the only one that can utilize that grame. Therefore,
+    other later threads cannot require that frame unless freed.
+
+---- RATIONALE ----
+
+>> A5: Why did you choose the data structure(s) that you did for
+>> representing virtual-to-physical mappings?
+      From the lecture we've learned, there was a method of implementing
+    page table called 'hashed page tables'. In this method, we use hash
+    data structure, which logical address data is converted to mapped
+    frame number using hash function. There were several reasons why we
+    tried to implement page table using hash.
+      First one, of course, was that pintos provided hash.h header file at
+    'lib/kernel' directory. The next reason was that it is easier to map 
+    between page and frame, when hash function is implemented. In page.c,
+    you can see that page_hash_func() and page_less_func() was implemented
+    to be used on initializing hash, in specific, page table.
+      Once we succefully implement page table, there expected to be no
+    such difficulties on mapping page and frame. But unfortunately, it was
+    not able to implement fully on this project.
+
+           PAGING TO AND FROM DISK
+           =======================
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+  frame.c
+  > static struct frame *frame_alloc_lock_try (struct page *pg)
+    One attempt to find a free frame and allocate it to the page.
+    Total tree attempts are done before deciding failure.
+  page.c
+  > bool page_in (void *)  bool page_out (struct page *)
+    Funcitons to perform paging in and out. page_in will be performed
+    when page fault happened. Return true on success, false on failure.
+  > struct page *page_allocate (void *, bool)  void page_deallocate (void *)
+    Funcitons to make or delete a mapping between page and page table.
+
+---- ALGORITHMS ----
+
+>> B2: When a frame is required but none is free, some frame must be
+>> evicted.  Describe your code for choosing a frame to evict.
+      After checking that none of the frame inside frame table is free,
+    we move on to the victim-choose process. For frame, to avoid being
+    selected as a victim frame to be evicted, it should have a history
+    of being accessed recently. If accessed, its lock structure fr_lock
+    will be hold, which can prevent victim-selection for once. After
+    preventing such selection, fr_lock is released.
+      When doing this process, there will be a chance to meet a frame
+    that its fr_lock is released. That is, we keep seek until we find
+    the frame that have not been accessed recently. That frame will be
+    the victim frame, and be evicted using page_out() function.
+
+>> B3: When a process P obtains a frame that was previously used by a
+>> process Q, how do you adjust the page table (and any other data
+>> structures) to reflect the frame Q no longer has?
+      When process Q decides to free the frame, then frame_free() function
+    in "vm/frame.c" will completely delete previous data about page an
+    page table. And also, it will empty the certain frame part of the
+    page table of process Q. Therefore, it can gauranteed that new process
+    P can get clear free frame, and Q also got no more connection with that
+    frame. 
+
+>> B4: Explain your heuristic for deciding whether a page fault for an
+>> invalid virtual address should cause the stack to be extended into
+>> the page that faulted.
+      To decide such situation, we tweaked the page_fault() function in
+    "userprog/exception.c". Before project 3, it just killed the process,
+    not considering the exact reason why the page fault happened. But,
+    from project 3, it is required to check if this page fault is the one
+    that needs to be into page table.
+       In page_fault(), three cause is indicated: not_present, write, and
+    user. The page fault that we need to handle is the user address that is
+    not just present. Otherwise, it is real fault, so we kill them just as
+    we did. We made the condition to check poth user and not_present is true.
+    In that case, it is expected to perform demand paging.
+
+---- SYNCHRONIZATION ----
+
+>> B5: Explain the basics of your VM synchronization design.  In
+>> particular, explain how it prevents deadlock.  (Refer to the
+>> textbook for an explanation of the necessary conditions for
+>> deadlock.)
+      There is a total four conditions of deadlock: mutual exclusion,
+    hold and wait, no preemption, and circular wait. In our code, we
+    tried to prevent deadlock by preventing 'hold and wait'.
+      Because of using lock_held_by_current_thread(), it is hard to
+    prevent 'no preemption', since it works iff current working thread is
+    the one that locked the frame. Other method, 'mutual exclusion' and
+    'circular wait' is also hard to implement in pintos project.
+      So it is chosen to tweak 'hold and wait', by not allowing some
+    access to some funcitons if lock is held by current thread.
+
+>> B6: A page fault in process P can cause another process Q's frame
+>> to be evicted.  How do you ensure that Q cannot access or modify
+>> the page during the eviction process?  How do you avoid a race
+>> between P evicting Q's frame and Q faulting the page back in?
+      Again, using fr_lock and lock_held_by_current_thread(), it can be
+    gauranteed that only the current thread that caused the actua lock
+    is the one that can properly perform the function. So, other process
+    cannot properly start the function by ASSERT.
+
+>> B7: Suppose a page fault in process P causes a page to be read from
+>> the file system or swap.  How do you ensure that a second process Q
+>> cannot interfere by e.g. attempting to evict the frame while it is
+>> still being read in?
+      When the frame got evicted, page_out() function is called. Inside
+    that function, there is a prior work to taking out the page from the
+    thread's page table. Since page is take out before performing other
+    operations in the function, it is safe from interfere by other processes.
+
+>> B8: Explain how you handle access to paged-out pages that occur
+>> during system calls.  Do you use page faults to bring in pages (as
+>> in user programs), or do you have a mechanism for "locking" frames
+>> into physical memory, or do you use some other design?  How do you
+>> gracefully handle attempted accesses to invalid virtual addresses?
+      When page fault occurs, we use page_fault() function inside
+    "userprog/exception.c". On specific condition, when fault address is
+    proper except it is not just present, it is specified to be paging in.
+      On A1, we introduced frame_lock and frame_unlock. Which keeps the
+    connection between the page and the frame.
+
+---- RATIONALE ----
+
+>> B9: A single lock for the whole VM system would make
+>> synchronization easy, but limit parallelism.  On the other hand,
+>> using many locks complicates synchronization and raises the
+>> possibility for deadlock but allows for high parallelism.  Explain
+>> where your design falls along this continuum and why you chose to
+>> design it this way.
+
+       MEMORY MAPPED FILES
+       ===================
+
+---- DATA STRUCTURES ----
+
+>> C1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+---- ALGORITHMS ----
+
+>> C2: Describe how memory mapped files integrate into your virtual
+>> memory subsystem.  Explain how the page fault and eviction
+>> processes differ between swap pages and other pages.
+    page fault
+      swap pages: find page in the swap space and switch
+    eviction
+      swap pages: find page in the swap space and evict
+
+>> C3: Explain how you determine whether a new file mapping overlaps
+>> any existing segment.
+    Get existing file mappings and compare with start address and end adress of new file mapping.
+    If it was overlapped, return.
+---- RATIONALE ----
+
+>> C4: Mappings created with "mmap" have similar semantics to those of
+>> data demand-paged from executables, except that "mmap" mappings are
+>> written back to their original files, not to swap.  This implies
+>> that much of their implementation can be shared.  Explain why your
+>> implementation either does or does not share much of the code for
+>> the two situations.
+
+
+
+         SURVEY QUESTIONS
+         ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+>> Any other comments?

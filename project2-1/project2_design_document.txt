@@ -1,0 +1,260 @@
+             +--------------------------+
+             |          CS 140          |
+             | PROJECT 2: USER PROGRAMS |
+             |     DESIGN DOCUMENT      |
+             +--------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+SeYeong Park <rikaika@unist.ac.kr>
+JunSu Lee <linak31413@unist.ac.kr>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+               ARGUMENT PASSING
+               ================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+userprog/process.c
+    tid_t process_execute (const cahr *file_name)
+      > Argument file_name is parsed to get the first argument.
+        That argument contains name of file to open,
+        and is used for creating thread.
+    char *save_ptr
+      > String variable to be used on strtok_r function.
+        Reason of using this function is explained on A3 part.
+    static void start_process (void *file_name_)
+      > Function called from create_thread.
+        file_name_ is parsed into arguments and stored in token_args[].
+        Those arguments are stacked on user stack, in designated order.
+    int token_amount
+      > Integer variable to contain the amount of arguments.
+        This variable is later used on stacking arguments.
+    char *token_args[30]
+      > Array of string to contain parsed arguments.
+        Size is set to 30, for handling all test cases.
+        This array is later used on stacking arguments.
+    char **token_args_ptr[30]
+      > Array of pointer of string, having arguments' address.
+        Size is set to 30, just as token_args[] does.
+        This array is used on stacking arguments.
+    char *token_now
+    char *token_save
+      > String variables that are used during argument parsing.
+        token_now stores recently parsed string, and
+        token_save stores leftover string to be parsed.
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe how you implemented argument parsing.  How do
+>> you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
+
+  Argument parsing implementation
+      We get the file_name in one combined string format, like 'run a b'.
+    'run' is the actual file_name, though, therefore we need to parse it.
+    To parse the string with delimiter ' ', function strtok_r() is used.
+    Doing the while loop, we keep parsing the given file_name.
+    When token_now, variable that contains recent argument, is not NULL,
+    we store that argument to token_args[]. Otherwise, end while loop.
+    Therefore, all arguments are stored in index of 0, 1, 2...
+  Arranging argv[] in the right order
+      We used the strategy to arrange in reversed order. Since we have stored
+    arguments amout in token_amount variable, we know the ending point of
+    the array token_args[]. So, starting from token_amount-1 to 0, the code
+    stores arguments into intr_frame if_'s esp position, which is user stack.
+    We also store current esp address in token_args_ptr[], for later use.
+  Avoiding stack page overflow
+      Prior to our manual handling of stack page overflow, Pintos itself has a
+    self-overflow detection on thread, refer to the manual. When such overflows
+    corrupts the thread state, kenrnel/user space should not allow that allocation,
+    therefore preventing the overflow in advance.
+      About our implementation, there is no process of checking such overflows
+    during the argument parsing. That is, user stack is kept written.
+    Instead, we are handling those when actually performing system calls.
+    On "threads/vaddr.h" file, there is a function to check whether given
+    address is for user space or kernel space. This will be introduced in B1 part.
+    Since overflowed user stacks invade kernel space, we can detect overflow
+    by checking if certain user address is actually not in user space.
+    We implemented check_user_vaddr() function for this process, and again,
+    these function will be introduced in B1 part.
+
+---- RATIONALE ----
+
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
+
+      strtok() and strtok_r() has its difference on argument 'char **saveptr'.
+    This argument is used to temporarily save the string to be parsed.
+    Difference between two funcitons is shown on multithreaded programming.
+      For example, two threads T1 an T2 tries to parse 'run a b' simultaneously.
+    Suppose that T1 does parsing ahead, and T2 performs while T1 is parsing.
+    Using strtok(), T1 parses 'run' from the argument, leaving 'a b' behind.
+    After T1's parsing, T2 parses leftover string 'a b', therefore yielding 'a'.
+    This situation is error, since both T1 and T2 are expected to get 'run'.
+    So, using strtok() might make return error related with race condition.
+      On the other hand, strtok_r() allows treads to store back-up string.
+    That is, although T1 starts priorly, it doesn't change 'run a b'.
+    T2 also parses from 'run a b', so both threads gets return as 'run'.
+    Therefore, using strtok_r() can handle multithreaded programming.
+    This is the main reason why Pintos implement strtok_r() instead.
+
+>> A4: In Pintos, the kernel separates commands into a executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+
+    1. Shell is not in kernel space, which means that, for Unix-like systems,
+      kernel is not spending its time for commands separation.
+    2. Before sending those separated commands to kernel, we can check its
+      validation on the shell in advance. This would prevent failure occuring
+      inside the kernel, which is more critical comapred to shell-level failure.
+
+                 SYSTEM CALLS
+                 ============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+threads/thread.h
+    struct file *file_desc[64];
+    int next_fd;
+      > When defined by USEPROG, two vairables are added to thread struct.
+        Variables to store file descriptor information.
+        Assigned upon open(). unassigned upon close() and exit().
+threads/vaddr.c
+    static inline bool is_user_vaddr (const void *vaddr) 
+    static inline bool is_kernel_vaddr (const void *vaddr) 
+      > Check if the traget address is in user or kernel space.
+        This is confirmed by variable PHYS_BASE.
+userprog/syscall.c
+    static void syscall_handler (struct intr_frame *f)
+      > Depending on intr_frame f's esp data, function performs
+        different tasks; halt, exit, create, open, write, close.
+        Each tasks checks addresses validation, then calls its function.
+    void check_user_vaddr (const void *target)
+      > Checking if the address is in user space, using is_user_vaddr().
+        If not, this means invalid approach to kernel space, so exit(-1).
+    void halt (void)
+      > Stops Pintos using shutdown_power_off() in devices/shutdown.c.
+    void exit (int)
+      > Unassign all file_desc[] information into NULL.
+        Print out the target thread's name and its exit code.
+        Then, thread_exit().
+    bool create (const char *, unsigned)
+      > Return filesys_create() if conditions are fulfilled.
+        Return true when successfully created, false otherwise.
+        exit(-1) on NULL. False on file name being out of range.
+    int open (const char *)
+      > Perform filesys_open() if conditions are fulfilled.
+        Store filesys_open() result in file_desc[i].
+        i is smallest index having NULL.
+        Return i upon success, -1 upon failures.
+    int write (int, const void *, unsigned)
+      > If fd is 1, write the result line using putbuf().
+        On other case, exit(-1).
+    void close (int)
+      > Close the current thread's specific fd.
+        Clear file_desc[fd] as NULL, and file_close() that.
+        exit(-1) if file_desc[fd] is already NULL.
+    
+>> B2: Describe how file descriptors are associated with open files.
+>> Are file descriptors unique within the entire OS or just within a
+>> single process?
+      We've put our file descriptors inside process' thread as file_desc[].
+    On open() function, we call the currently runnin thread's file_desc[] to
+    save the opened file data. Those data can be stored up to 64 for now.
+    This states that file descriptors are unique within a single process.
+
+---- ALGORITHMS ----
+
+>> B3: Describe your code for reading and writing user data from the
+>> kernel.
+
+>> B4: Suppose a system call causes a full page (4,096 bytes) of data
+>> to be copied from user space into the kernel.  What is the least
+>> and the greatest possible number of inspections of the page table
+>> (e.g. calls to pagedir_get_page()) that might result?  What about
+>> for a system call that only copies 2 bytes of data?  Is there room
+>> for improvement in these numbers, and how much?
+
+>> B5: Briefly describe your implementation of the "wait" system call
+>> and how it interacts with process termination.
+
+>> B6: Any access to user program memory at a user-specified address
+>> can fail due to a bad pointer value.  Such accesses must cause the
+>> process to be terminated.  System calls are fraught with such
+>> accesses, e.g. a "write" system call requires reading the system
+>> call number from the user stack, then each of the call's three
+>> arguments, then an arbitrary amount of user memory, and any of
+>> these can fail at any point.  This poses a design and
+>> error-handling problem: how do you best avoid obscuring the primary
+>> function of code in a morass of error-handling?  Furthermore, when
+>> an error is detected, how do you ensure that all temporarily
+>> allocated resources (locks, buffers, etc.) are freed?  In a few
+>> paragraphs, describe the strategy or strategies you adopted for
+>> managing these issues.  Give an example.
+
+---- SYNCHRONIZATION ----
+
+>> B7: The "exec" system call returns -1 if loading the new executable
+>> fails, so it cannot return before the new executable has completed
+>> loading.  How does your code ensure this?  How is the load
+>> success/failure status passed back to the thread that calls "exec"?
+
+>> B8: Consider parent process P with child process C.  How do you
+>> ensure proper synchronization and avoid race conditions when P
+>> calls wait(C) before C exits?  After C exits?  How do you ensure
+>> that all resources are freed in each case?  How about when P
+>> terminates without waiting, before C exits?  After C exits?  Are
+>> there any special cases?
+
+---- RATIONALE ----
+
+>> B9: Why did you choose to implement access to user memory from the
+>> kernel in the way that you did?
+
+>> B10: What advantages or disadvantages can you see to your design
+>> for file descriptors?
+
+>> B11: The default tid_t to pid_t mapping is the identity mapping.
+>> If you changed it, what advantages are there to your approach?
+
+               SURVEY QUESTIONS
+               ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+>> Any other comments?

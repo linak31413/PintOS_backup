@@ -1,0 +1,141 @@
+      +--------------------+
+      |        CS 140      |
+      | PROJECT 1: THREADS |
+      |   DESIGN DOCUMENT  |
+      +--------------------+
+           
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+SeYeong Park <rikaika@unist.ac.kr>
+JunSu Lee <linak31413@unist.ac.kr>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+           ALARM CLOCK
+           ===========
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+thread.c
+  line32:  static struct list sleep_list
+    > Threads with THREAD_BLOCKED state is stored in this list instead of ready_list.
+      While in this list, threads will sleep for individaully designated ticks.
+  line101: list_init (&sleep_list)
+    > Just like other ready_list, sleep_list needs to be initialized for future usage.
+  line362: void thread_make_sleep (int64_t target_ticks)
+    > Store a thread adress into cur, then disable the interrupts.
+      If cur is not the idle thread, put that thread in sleep_list, then block it.
+  line383: void thread_make_awake (int64_t target_ticks)
+    > Check elements in sleep_list, using wake_elem,
+      If a thread's tick_sleep is not bigger than target_ticks, wake up, remove from wake_element, then unblock it.
+Thread.h
+  line93:  line int64_t tick_sleep
+    > Thread's new variable that stores the expected global ticks to wake up.
+      This variable gets the value when thread_make_sleep function is called.
+  line136: void thread_make_sleep (int64_t target_ticks)
+    > A function that makes non-idle thread into THREAD_BLOCKED state.
+      Detailed description is on Thread.c.
+  line137: void thread_make_awake (int64_t target_ticks) 
+    > A function that makes sleep_list's thread with past tick_sleep into THREAD_READY state.
+          Detailed description is on Thread.c.
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe what happens in a call to timer_sleep(),
+>> including the effects of the timer interrupt handler.
+
+    When timer_sleep function is called, get the ticks past after calling a function, by timer_ticks(), into variable start.
+    Next, make sure that interrupt is currently off, to ensure that sleep_list modification is done without interrupts.
+    Lastly, if variable start is smaller than areguemnt ticks, we can call thread_make_sleep() function for thread sleep.
+
+    Since threads in sleep_list have certain tick value as tick_sleep, it is required to check those values in timer_interrupt().
+    So, as implemented, thread_make_awake() function is added for sleep_list thread checking.
+
+>> A3: What steps are taken to minimize the amount of time spent in
+>> the timer interrupt handler?
+
+    As said above, thread_make_awake() is newely added on timer_interrupt().
+    If it uses while statement for examining all threads in sleep_list, it has potential to be time-consuming.
+    So, to minimize those time, we made sleep_list in ascending order and check the remain time ticks from the first element. Then we don't have to compare all of sleeping threads.
+    
+    By reducing the list browsing and comparing step, we tried to minimize the time spent in the timer interrupt handler.
+
+---- RATIONALE ----
+
+>> A6: Why did you choose this design?  In what ways is it superior to
+>> another design you considered?
+
+    We thought about some ways to implement this, and one discarded way was to make count-down timer into each threads.
+    But this method was not used because it seemed not good to manage THREAD_BLOCKED threads' element, and increased calcuation.
+    Other candidate was to make variable outside the thread, to seek for the next target ticks to wake.
+    This was also disposed, since it was too complicated to update the variable, and of course, increasing calcuation.
+    Therefore, our way of making each threads to have future target tick to wake up, is selected for the most stable and simple one.
+
+       PRIORITY SCHEDULING
+       ===================
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+--------------------------
+  thread_yield ()
+    > I executed thread_yield() after thread_create() and set_priority() to consider       preemption of new priority.
+  list_insert_ordered (&ready_list, &t->elem, &thread_compare_priority, NULL)
+    > I replaced list_push_back with list_insert_ordered to make ready_list priority       descending order.
+  bool thread_compare_priority (struct list_elem *elem1, struct list_elem *elem2, void *aux)
+    > To find proper position of the ready thread, I needed a priority comparing func      tion.
+
+---- RATIONALE ----
+
+>> B7: Why did you choose this design?  In what ways is it superior to
+>> another design you considered?
+
+  The original code used Round Robin scheduling which ignores priority.
+  I thought two way to consider priority of threads.
+  1. Find highest priority in ready_list whenever I need next thread to run.
+    > Its insertion is O(1), just push_back.
+    > Finding highest priority is O(n), check all elements of ready_list.
+  2. Insert in order whenever I insert a thread in ready_list.
+    > Its insertion is O(n), but it doesn't need to check all elements.
+    > Finding highest priority is O(1), pop the first element.
+  I chose the second one because of its time efficiency.
+
+         SURVEY QUESTIONS
+         ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+>> Any other comments?
